@@ -1,3 +1,4 @@
+// app/components/MenuUpload.tsx
 'use client'
 
 import { useState, useRef } from 'react'
@@ -44,6 +45,57 @@ export default function MenuUpload({ screenId, screenName, onUploadComplete, onC
     }
   }
 
+  // Add image compression function
+  const compressImage = (file: File, maxSizeKB: number = 800): Promise<File> => {
+    return new Promise((resolve) => {
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')!
+      const img = new Image()
+
+      img.onload = () => {
+        // Calculate new dimensions (max 1920x1080 for TV display)
+        let { width, height } = img
+        const maxWidth = 1920
+        const maxHeight = 1080
+
+        if (width > maxWidth || height > maxHeight) {
+          const aspectRatio = width / height
+          if (width > height) {
+            width = maxWidth
+            height = width / aspectRatio
+          } else {
+            height = maxHeight
+            width = height * aspectRatio
+          }
+        }
+
+        canvas.width = width
+        canvas.height = height
+
+        // Draw and compress
+        ctx.drawImage(img, 0, 0, width, height)
+
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              const compressedFile = new File([blob], file.name, {
+                type: 'image/jpeg',
+                lastModified: Date.now(),
+              })
+              resolve(compressedFile)
+            } else {
+              resolve(file) // Fallback to original
+            }
+          },
+          'image/jpeg',
+          0.8 // 80% quality
+        )
+      }
+
+      img.src = URL.createObjectURL(file)
+    })
+  }
+
   const handleFileUpload = async (file: File) => {
     // Validate file type
     if (!file.type.startsWith('image/')) {
@@ -51,7 +103,7 @@ export default function MenuUpload({ screenId, screenName, onUploadComplete, onC
       return
     }
 
-    // Validate file size (max 5MB)
+    // Validate file size (max 5MB before compression)
     if (file.size > 5 * 1024 * 1024) {
       alert('File size must be less than 5MB')
       return
@@ -60,48 +112,78 @@ export default function MenuUpload({ screenId, screenName, onUploadComplete, onC
     setIsUploading(true)
 
     try {
+      // Compress image if it's large
+      let processedFile = file
+      if (file.size > 800 * 1024) { // If larger than 800KB, compress
+        processedFile = await compressImage(file)
+        console.log(`Compressed from ${(file.size / 1024).toFixed(0)}KB to ${(processedFile.size / 1024).toFixed(0)}KB`)
+      }
+
       // Create preview
       const reader = new FileReader()
-      reader.onload = (e) => {
-        setPreviewUrl(e.target?.result as string)
-      }
-      reader.readAsDataURL(file)
+      reader.onload = async (e) => {
+        const base64Data = e.target?.result as string
+        setPreviewUrl(base64Data)
 
-      // Upload to Vercel Blob via API route
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('screenId', screenId)
+        // Try Vercel Blob first, fallback to localStorage
+        try {
+          const formData = new FormData()
+          formData.append('file', processedFile)
+          formData.append('screenId', screenId)
 
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      })
+          const response = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData,
+          })
 
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Upload failed')
+          if (response.ok) {
+            const result = await response.json()
+            
+            // Save URL to localStorage for immediate access
+            const menuData = {
+              screenId,
+              imageUrl: result.url,
+              filename: result.filename,
+              uploadedAt: new Date().toISOString(),
+              source: 'blob'
+            }
+            
+            localStorage.setItem(`menu-${screenId}`, JSON.stringify(menuData))
+            onUploadComplete(screenId, result.url)
+            
+          } else {
+            const errorData = await response.json()
+            throw new Error(errorData.error || 'Blob upload failed')
+          }
+          
+        } catch (blobError) {
+          console.log('Blob upload failed, falling back to localStorage:', blobError)
+          
+          // Fallback to localStorage
+          const menuData = {
+            screenId,
+            imageData: base64Data,
+            filename: processedFile.name,
+            uploadedAt: new Date().toISOString(),
+            source: 'localStorage'
+          }
+          
+          localStorage.setItem(`menu-${screenId}`, JSON.stringify(menuData))
+          onUploadComplete(screenId, base64Data)
+        }
+        
+        setIsUploading(false)
       }
 
-      const result = await response.json()
-      
-      // Save URL to localStorage for immediate access
-      const menuData = {
-        screenId,
-        imageUrl: result.url,
-        filename: result.filename,
-        uploadedAt: new Date().toISOString()
+      reader.onerror = () => {
+        throw new Error('Failed to read file')
       }
-      
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(`menu-${screenId}`, JSON.stringify(menuData))
-      }
-      
-      onUploadComplete(screenId, result.url)
+
+      reader.readAsDataURL(processedFile)
       
     } catch (error) {
       console.error('Upload failed:', error)
       alert(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    } finally {
       setIsUploading(false)
     }
   }
@@ -174,9 +256,10 @@ export default function MenuUpload({ screenId, screenName, onUploadComplete, onC
           <h3 className="font-medium text-gray-700 mb-2">📋 Requirements:</h3>
           <ul className="text-sm text-gray-600 space-y-1">
             <li>✅ Image format: PNG, JPG, JPEG, WEBP</li>
-            <li>✅ Max file size: 5MB</li>
-            <li>✅ Recommended: 1920x1080 (Full HD) for TV display</li>
-            <li>✅ Use high contrast text for better visibility</li>
+            <li>✅ Max file size: 5MB (auto-compressed for optimal display)</li>
+            <li>✅ Auto-resized to: 1920x1080 (Full HD) for TV display</li>
+            <li>✅ High contrast text recommended for better visibility</li>
+            <li>💡 Large images are automatically optimized for faster loading</li>
           </ul>
         </div>
 

@@ -1,3 +1,4 @@
+// app/display/[id]/page.tsx
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -60,15 +61,24 @@ export default function Display() {
       try {
         setIsLoading(true)
         
+        // Debug log for screen 1
+        if (displayId === '1') {
+          console.log('Loading Screen 1, checking localStorage and API...')
+        }
+        
         // First check localStorage for immediate loading
         const storedMenu = localStorage.getItem(`menu-${displayId}`)
         if (storedMenu) {
           const menuData = JSON.parse(storedMenu)
-          if (menuData.imageUrl) {
-            setMenuImage(menuData.imageUrl)
+          console.log(`Found stored menu for screen ${displayId}:`, menuData)
+          
+          if (menuData.imageUrl || menuData.imageData) {
+            setMenuImage(menuData.imageUrl || menuData.imageData)
             setIsLoading(false)
             return
           }
+        } else {
+          console.log(`No stored menu found for screen ${displayId}`)
         }
 
         // Try to get from API (this would check your blob storage)
