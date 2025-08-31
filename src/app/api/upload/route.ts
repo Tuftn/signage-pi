@@ -1,3 +1,4 @@
+// app/api/upload/route.ts
 import { put } from '@vercel/blob'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -26,18 +27,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Create filename
-    const extension = file.name.split('.').pop()
+    const extension = file.name.split('.').pop() || 'png'
     const filename = `screen-${screenId}-menu.${extension}`
 
-    // Upload to Vercel Blob
+    // Upload to Vercel Blob with overwrite enabled
     const blob = await put(filename, file, {
       access: 'public',
-      addRandomSuffix: false, // Keep consistent filename for each screen
+      addRandomSuffix: false,
+      allowOverwrite: true, // Allow overwriting existing menu images
     })
 
-    // Store the URL in edge config or return it to be stored client-side
-    // For now, we'll rely on consistent filename pattern
-    
     return NextResponse.json({ 
       success: true, 
       url: blob.url,
@@ -62,13 +61,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Screen ID required' }, { status: 400 })
     }
 
-    // In a real app, you'd query your database here
-    // For now, we'll return the expected blob URL pattern
-    const expectedUrl = `https://your-blob-store.vercel-storage.com/screen-${screenId}-menu`
-    
+    // For now, return a placeholder response
+    // In production, you'd check if the blob actually exists
     return NextResponse.json({ 
-      url: expectedUrl,
-      exists: true // You'd check if the file actually exists
+      url: null,
+      exists: false
     })
 
   } catch (error) {
